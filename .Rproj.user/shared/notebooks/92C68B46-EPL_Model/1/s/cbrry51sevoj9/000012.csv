@@ -1,0 +1,2 @@
+"0","pcaEPL = prcomp(ModelData[,-1], scale=T)"
+"0","fviz_eig(pcaEPL)"

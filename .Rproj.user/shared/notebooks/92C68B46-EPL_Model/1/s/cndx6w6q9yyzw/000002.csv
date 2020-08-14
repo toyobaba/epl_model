@@ -1,0 +1,68 @@
+"0","library(ggplot2) 
+"
+"2","package ‘ggplot2’ was built under R version 3.6.3"
+"0","library(randomForest)"
+"2","randomForest 4.6-14
+"
+"2","Type rfNews() to see new features/changes/bug fixes.
+"
+"2","
+Attaching package: ‘randomForest’
+
+"
+"2","The following object is masked from ‘package:ggplot2’:
+
+    margin
+
+"
+"0","library(caret)"
+"2","package ‘caret’ was built under R version 3.6.3"
+"2","Loading required package: lattice
+"
+"2","package ‘lattice’ was built under R version 3.6.3"
+"0","library(e1071)"
+"0","library(RColorBrewer)"
+"0","library(rattle)"
+"2","package ‘rattle’ was built under R version 3.6.3"
+"2","Loading required package: tibble
+"
+"2","package ‘tibble’ was built under R version 3.6.3"
+"2","Loading required package: bitops
+"
+"2","Rattle: A free graphical interface for data science with R.
+Version 5.4.0 Copyright (c) 2006-2020 Togaware Pty Ltd.
+Type 'rattle()' to shake, rattle, and roll your data.
+"
+"2","
+Attaching package: ‘rattle’
+
+"
+"2","The following object is masked from ‘package:randomForest’:
+
+    importance
+
+"
+"0","library(nnet)"
+"2","package ‘nnet’ was built under R version 3.6.3"
+"0","library(MASS)"
+"2","package ‘MASS’ was built under R version 3.6.3"
+"0","library(rpart)"
+"0","library(rpart.plot)"
+"0","library(factoextra) #PCA Analysis visualization"
+"2","package ‘factoextra’ was built under R version 3.6.3"
+"2","Welcome! Want to learn more? See two factoextra-related books at https://goo.gl/ve3WBa
+"
+"0","library(yardstick)"
+"2","package ‘yardstick’ was built under R version 3.6.3"
+"2","For binary classification, the first factor level is assumed to be the event.
+Use the argument `event_level = ""second""` to alter this as needed.
+"
+"2","
+Attaching package: ‘yardstick’
+
+"
+"2","The following objects are masked from ‘package:caret’:
+
+    precision, recall, sensitivity, specificity
+
+"

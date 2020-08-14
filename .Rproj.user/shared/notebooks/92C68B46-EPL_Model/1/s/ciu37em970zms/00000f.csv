@@ -1,0 +1,3 @@
+"0","#Classification Tree"
+"0","EPLTree <- rpart(FTR~. , data= ModelData, method = ""class"")"
+"0","fancyRpartPlot(EPLTree)"

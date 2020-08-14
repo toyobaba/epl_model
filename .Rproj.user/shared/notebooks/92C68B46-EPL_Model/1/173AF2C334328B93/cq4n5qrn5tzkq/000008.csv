@@ -1,0 +1,6 @@
+"0",""
+"0","#transformedModelData"
+"0","# ModelData[,BbAvA:=log(BbAvA)]"
+"0","# ModelData[,BbAvD:=log(BbAvD)]"
+"0","# ModelData[,BbAvH:=log(BbAvH)]"
+"0","ModelData[,FTR:= as.factor(FTR)]"

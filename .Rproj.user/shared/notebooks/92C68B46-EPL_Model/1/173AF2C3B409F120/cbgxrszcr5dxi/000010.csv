@@ -1,0 +1,4 @@
+"0","table(ldaModel$class, ldaData$FTR)
+"
+"2","Error in table(ldaModel$class, ldaData$FTR) : object 'ldaModel' not found
+"

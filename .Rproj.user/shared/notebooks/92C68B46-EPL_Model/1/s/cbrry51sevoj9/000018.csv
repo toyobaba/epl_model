@@ -1,0 +1,2 @@
+"0","ggplot(variableContribbution, aes(x = row.names(variableContribbution), y = PCA_Contribution))+ geom_bar(stat = ""identity"", fill=""steelblue"")+ "
+"0","  theme(axis.text.x=element_text(angle=90, hjust = 1))+xlab(""PCA contribution of first three dimensions"")"

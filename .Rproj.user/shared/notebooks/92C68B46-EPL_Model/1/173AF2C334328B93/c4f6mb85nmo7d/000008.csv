@@ -1,0 +1,7 @@
+"0",""
+"0","#Predicion - Test data"
+"0","predictFTR = predict(EPLTree, type = ""class"", newdata = Test)"
+"0","fourfoldplot (table(predictFTR, Test$FTR))"
+"2","Error in fourfoldplot(table(predictFTR, Test$FTR)) : 
+  table for each stratum must be 2 by 2
+"

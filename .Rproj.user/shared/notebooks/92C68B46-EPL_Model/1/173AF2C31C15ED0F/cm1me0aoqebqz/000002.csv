@@ -1,0 +1,11 @@
+"0","#Tree Model"
+"0","ModelData = finalData[101:nrow(finalData),3:ncol(finalData)]"
+"0",""
+"0","#Find difference in stats by team"
+"0","ModelData[,FTGrDiff := FTGrAvg - FTGrAvgAway]"
+"0","ModelData[,STrDiff := STrAvg - STrAvgAway]"
+"0","ModelData[,FoulsrDiff := FoulsrAvg - FoulsrAvgAway]"
+"0","ModelData[,CornersrDiff := CornersrAvg - CornersrAvgAway]"
+"2","Error in eval(jsub, SDenv, parent.frame()) : 
+  object 'CornersrAvg' not found
+"

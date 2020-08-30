@@ -17,3 +17,6 @@ rattle
 nnet
 MASS
 factoextra
+tibble
+bitops
+yardstick

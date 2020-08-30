@@ -1,12 +1,16 @@
 ---
-title: "English Premier League (EPL) Match Predictor"
+title: "English Premier League Match Predictor"
 author: "Omotoyosi Taiwo"
-date: "2/06/2020"
-output: html_document
+output:
+  html_document:
+    highlight: breezedark
+    theme: united
+  pdf_document: default
+  word_document: default
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = TRUE)  
+knitr::opts_chunk$set(echo = T, cache = T, error = F, fig.align = "center", warning = F)  
 ```
 
 ```{r, include=FALSE}
@@ -29,108 +33,138 @@ library(rpart.plot)
 library(factoextra) #PCA Analysis visualization
 library(yardstick)
 ```
-# Introduction
+
+```{r, results= "hide", echo=FALSE}
+# Read Match Stats and Betting data
+toChange = c("Arsenal FC", "Birmingham City","Blackburn Rovers","Blackpool FC","Bolton Wanderers", "AFC Bournemouth",
+             "Bradford City", "Brighton & Hove Albion", "Burnley FC", "Cardiff City", "Charlton Athletic",
+             "Chelsea FC","Coventry City", "Derby County", "Everton FC", "Fulham FC", "Huddersfield Town", 
+             "Hull City", "Ipswich Town", "Leeds United", "Leicester City", "Liverpool FC", "Manchester City",
+             "Manchester United", "Middlesbrough FC", "Newcastle United", "Norwich City", "Portsmouth FC", 
+             "Queens Park Rangers", "Reading FC" , "Southampton FC", "Stoke City", "Sunderland AFC",  "Swansea City",
+             "Tottenham Hotspur", "West Ham United", "West Bromwich Albion", "Watford FC", "Wolverhampton Wanderers",
+             "Wigan Athletic", "West Bromwich")
+
+changeTo = c("Arsenal" , "Birmingham", "Blackburn", "Blackpool", "Bolton", "Bournemouth", "Bradford", "Brighton", 
+            "Burnley", "Cardiff", "Charlton", "Chelsea", "Coventry", "Derby", "Everton", "Fulham", "Huddersfield", 
+            "Hull", "Ipswich","Leeds", "Leicester", "Liverpool", "Man City", "Man United", "Middlesbrough", 
+            "Newcastle", "Norwich", "Portsmouth", "QPR", "Reading", "Southampton", "Stoke","Sunderland", "Swansea",
+            "Tottenham", "West Ham", "West Brom","Watford", "Wolves",  "Wigan", "West Brom")
+
+toKeep = c("HomeTeam","AwayTeam","FTR","BbAvH","BbAvD","BbAvA","BbMxH","BbMxD","BbMxA","FTHG","FTAG","HTHG","HTAG","HS","AS","HST","AST","HF","AF","HC","AC","HY","AY","HR","AR", "AvgA","AvgH","AvgD", "MaxH","MaxD","MaxA")
+
+#Go through all years and read data from folder
+for (year in c(4:19)){
+  thisYear = print(sprintf("%02d", year))
+  nextYear = print(sprintf("%02d", year+1))
+  
+  #Read Transfer data
+  tName = paste0("Transfers",thisYear,nextYear)
+  assign(tName, fread(paste0(thisYear,nextYear,"/Transfers.csv")))
+  assign(tName, na.omit(get(tName)))
+  assign(tName,  get(tName)[age > 18]) #Only considering players over 18, as this would be the players in the first team
+  get(tName)[,c("player_name", "position","club_involved_name","fee","league_name","year","season"):=NULL]
+  assign(tName, dcast.data.table(get(tName), club_name ~ transfer_movement, fun = list(sum, mean), value.var =list("fee_cleaned", "age")))
+  for(i in 1:length(toChange)) { get(tName)[club_name== toChange[i],club_name:=changeTo[i]] } #Change team names to match betting data
+  #get(tName)[,HomeTeam := club_name][,club_name:=NULL]
+  
+  #Read match data
+  eName = paste0("EPL",thisYear,nextYear)
+  assign(eName, fread(paste0(thisYear,nextYear,"/season-",thisYear,nextYear,"_csv.csv")))
+  actualKeep = names(get(eName)) %in% toKeep
+  assign(eName, get(eName)[,..actualKeep])
+  
+  
+  #Read Fifa Rankings
+  fName = paste0("Fifa",thisYear,nextYear)
+  assign(fName, fread(paste0(thisYear,nextYear,"/Fifa_Rankings.csv")))
+  get(fName)[,c("League", "Team Rating", "V1"):=NULL]
+  for(i in 1:length(toChange)) { get(fName)[Name== toChange[i],Name:=changeTo[i]] } #Change team names to match betting data
+  
+  #Left join Stats to transfer details
+  assign(eName, merge(get(eName), get(tName), by.x = "HomeTeam", by.y = "club_name", sort = F))
+  assign(eName, merge(get(eName), get(tName), by.x = "AwayTeam", by.y = "club_name", sort = F))
+  
+  #Left join Stats to Fifa Stats
+  assign(eName, merge(get(eName), get(fName), by.x = "HomeTeam", by.y = "Name", sort = F, all =T))
+  assign(eName, merge(get(eName), get(fName), by.x = "AwayTeam", by.y = "Name", sort = F, all = T))
+  setnames(get(eName), names(get(eName))[26:41], c("ASpend", "ARevenue", "AAgeIn","AAgeOut","HSpend", "HRevenue", "HAgeIn","HAgeOut", "AFifaATT", "AFifaMID", "AFifaDEF", "AFifaOVR", "HFifaATT", "HFifaMID", "HFifaDEF", "HFifaOVR"))
+}
+
+```
+
+```{r results= "hide", echo=FALSE}
+setnames(EPL1920,c("AvgA","AvgH","AvgD","MaxH","MaxD","MaxA"), c("BbAvA","BbAvH","BbAvD", "BbMxH","BbMxD","BbMxA"))#Fix closing betting averages column name changes from the 19/20 season dataset
+
+modelData = NULL
+# Seperate Modelling Data that doesn't need to be aggregated
+modelCols = c("HomeTeam","AwayTeam","FTR","BbAvH","BbAvD","BbAvA", "BbMxH","BbMxD","BbMxA", "ASpend", "ARevenue","HSpend", "HRevenue", "AFifaATT", "AFifaMID", "AFifaDEF", "AFifaOVR", "HFifaATT", "HFifaMID", "HFifaDEF", "HFifaOVR")
+relevantColumns = c("HomeTeam","AwayTeam","FTHG","FTAG","HTHG","HTAG","HS","AS","HST","AST","HF","AF","HC","AC","HY","AY","HR","AR")
+allSeasons = vector(mode="list", length = 16)
+meltedDataList = list()
+
+#Do a row bind for all data
+for (year in c(4:19)){
+  thisYear = print(sprintf("%02d", year))
+  nextYear = print(sprintf("%02d", year+1))
+  assign(paste0("EPL",thisYear,nextYear,"Mod"), get(paste0("EPL",thisYear,nextYear))[,..modelCols] )
+  modelData = rbind(modelData, get(paste0("EPL",thisYear,nextYear,"Mod")))
+  assign(paste0("EPL",thisYear,nextYear), get(paste0("EPL",thisYear,nextYear))[,..relevantColumns])
+  allSeasons[[year-3]] = get(paste0("EPL",thisYear,nextYear))
+}
+```
+
+
+## Exploratory Data Analysis
 
 Football Matches are notoriously hard to predict due to the random and low scoring nature of the games. One of the prevailing nuggets of wisdom however, is that home teams win more on average, and this has been 
 <a href = "https://bleacherreport.com/articles/1604854-how-much-does-home-field-advantage-matter-in-soccer">statistically backed up</a>. 
-In recent years, more advanced metrics have been proposed to account for variance in playing styles and team performances. An example is xG (Expected Goals) this is a measure the possible goals teams should have scored based on shot location, however even that does not account for factors like defence engagement, the time the shot was attempted, and the current scoreline all which hypothetically affect players.
 
-These factors and many have made soccer results really difficult to predict. Betting companies develop advanced algortithms to generate true odds for football matches even though they adjust these odds so that they always turn a profit.
+The plot below shows the outcome of all games, Home wins occur 46% percent of the time. This means a model that just predicts home wins should be right app. 46% of the time.
 
-The idea behind this project is to use the closing betting data, team form (using rolling averages of n previous games for various performance metrics) and 538 metrics including expected goals, team reputation (SPI), and projected scores to improve prediction.
+\newline
+```{r fig.width= 4, results= "hide", echo=FALSE}
+ggplot(modelData, aes(FTR))+ geom_bar( width = 0.5, color="steelblue")+ggtitle("Wins distribution")+theme_bw()
+```
+\newline
+In recent years, more advanced metrics have been proposed to account for the randomness of results. An example is xG (Expected Goals), which is the probability that a shot will lead to a goal based on factors including events leading to the shot, location of the shooter, body part used to shoot, type of pass that led to the shot, and the type of attcking event that led to the shot. The shot is compared to historical data of same shot, and how often it gets converted. 
+
+Even with all these metrics, it is still quite hard to predict game outcomes, which is why the betting industry is worth billions of dollars. The betting companies have advanced models to generate odds, even though they adjust them a little to make sure the house always wins. 
+
+The idea behind this project is to use the closing odds from various gambling companies, and buttress it with team form (using rolling averages of n previous games for various performance metrics), transfer spending, and fifa ratings.
 
 The data I used for this project was downloaded from 
-<a href = "http://www.football-data.co.uk/englandm.php">football-data.co.uk</a> and 
-<a href = "https://projects.fivethirtyeight.com/soccer-predictions/">fivethirtyeight.com</a>
+<a href = "http://www.football-data.co.uk/">football-data.co.uk</a>, 
+<a href = "https://projects.fivethirtyeight.com/">fivethirtyeight.com</a>, 
+<a href = "https://fbref.com/en/fifa">fbref.com</a>, and 
+<a href = "https://www.fifaindex.com/">fifaindex.com</a>. 
+A lot of the work involved was getting the data, scraping the data and putting it together to make it structured.
 
-Because 538 metrics only go back to the beginning of the 16/17 season, this limits the observations in the dataset which will most probably reduce accuracy. I will keep looking out for updates for previous seasons once it becomes availabe and use it to improve model
+For this project I decided to use R data.table, because I love how blazing fast they are and it's one-liner approach to data manipulation, although it is quite unneccesary for the size of data involved in this project, however I plan to include other leagues in the future, and I can see the data getting big (Big data?) very quickly.
 
->Future work
-
-Create a data pipeline that automatically scrapes betting data and spi data once it becomes available and uses it to improve prediction
-
-# Preparing the Data
-I will be using mostly R data.table, because I love how blazing fast data.tables are and it's one-liner approach to data manipulation, although it is quite unneccesary for the size of data involved in this project
-
+The 2 custom functions below are used to create the confusion matrix plot and perform rolling means for the match stats
 ```{r}
-# Read Match Stats and Betting data
-EPL1819_all = fread("season-1819_csv.csv")
-EPL1718_all = fread("season-1718_csv.csv")
-EPL1617_all = fread("season-1617_csv.csv")
-EPL1920_all = fread("season-1920_csv.csv")
-setnames(EPL1920_all,c("AvgA","AvgH","AvgD"), c("BbAvA","BbAvH","BbAvD"))#Fix closing betting averages column name changes from the 19/20 season dataset
+#All functions
+#Takes confusion_matrix object and plots it with important metrics
+plot_confusion_matrix = function(cm ){
+  autoplot(cm, type = "heatmap")+
+  scale_fill_gradient(low="#D6EAF8",high = "#2E86C1")+
+  ggtitle(paste0("Accuracy = ", format(round(summary(cm)[[".estimate"]][1], 2), nsmall = 2),
+          "         Sensitivity = ", format(round(summary(cm)[[".estimate"]][3], 2), nsmall = 2),
+          "         Specificity = ", format(round(summary(cm)[[".estimate"]][4], 2), nsmall = 2))) +
+  theme(plot.title = element_text(hjust = 0.5))
+  } 
 
-# Seperate Modelling Data that doesn't need to be aggregated
-modelCols = c("HomeTeam","AwayTeam","FTR","BbAvH","BbAvD","BbAvA")
-EPL1617_mod = EPL1617_all[,..modelCols]
-EPL1718_mod = EPL1718_all[,..modelCols]
-EPL1819_mod = EPL1819_all[,..modelCols]
-EPL1920_mod = EPL1920_all[,..modelCols]
-modelData = rbind(EPL1617_mod, EPL1718_mod,EPL1819_mod ,EPL1920_mod)
-
-# Remove Extraneous columns
-relevantColumns = c("HomeTeam","AwayTeam","FTHG","FTAG","HTHG","HTAG","HS","AS","HST","AST","HF","AF","HC","AC","HY","AY","HR","AR")
-EPL1617 = EPL1617_all[,..relevantColumns]
-EPL1718 = EPL1718_all[,..relevantColumns]
-EPL1819 = EPL1819_all[,..relevantColumns]
-EPL1920 = EPL1920_all[,..relevantColumns]
-
-# Load 538 spi ratings and xG data
-spiMatches = fread("spi_matches.csv")
-spiMatches = spiMatches[league == "Barclays Premier League",]
-
-# Format spi data to fit stats and betting data - Different team names in both data set
-setnames(spiMatches,c("team1","team2"), c("HomeTeam","AwayTeam"))
-
-spiTeamToChange = c("Hull City", "Manchester City", "AFC Bournemouth","Manchester United", "Leicester City", "Stoke City", "Swansea City", "Tottenham Hotspur","West Bromwich Albion","West Ham United", "Brighton and Hove Albion", "Huddersfield", "Wolverhampton", "Cardiff City", "Norwich City")
-
-changeTo = c("Hull","Man City","Bournemouth", "Man United", "Leicester", "Stoke", "Swansea", "Tottenham","West Brom","West Ham","Brighton","Huddersfield","Wolves", "Cardiff", "Norwich")
-
-# Change team names to match
-for(i in 1:length(spiTeamToChange)) {
-  spiMatches[HomeTeam== spiTeamToChange[i],HomeTeam:=changeTo[i]]
-  spiMatches[AwayTeam== spiTeamToChange[i],AwayTeam:=changeTo[i]]
-}
-
-# Sort to match order - Betting data is sorted by date, then home team name.
-spiMatches[,date := as.Date(date,format="%Y-%m-%d")]
-setorder(spiMatches, date, HomeTeam)
+##Custom function - Find the rolling mean of previous n elements
+shift_froll = function(x, n){shift(frollmean(x, n= n))}
 ```
 
-I decided to use an attacking variable based on the aggregation of 3 goal variables provided by 538. xg is the number of goals each team was expected to score, nsxg is the non shot expected goals, and adj_score is the ajusted score 538 gave each team to account for expected efficiency of goal conversion as many things being equal.
 
-I also included a new variable to account for how badly teams perform relative to their attacking value, this feature was called Efficiency.
-The Efficiency of the team is the goal scored as a ratio of the expected attacking variable
-
-```{r}
-#Generate agg cols for spi
-spiMatches[, attackH := xg1 +nsxg1 +adj_score1]
-spiMatches[, attackA := xg2 +nsxg2 +adj_score2]
-
-#Column bind spi data and betting data. There are 380 matches every season
-EPL1617 = cbind(EPL1617, spiMatches[1:380,17:24])
-EPL1718 = cbind(EPL1718, spiMatches[381:760,17:24])
-EPL1819 = cbind(EPL1819, spiMatches[761:1140,17:24])
-EPL1920 = cbind(EPL1920, spiMatches[1141:(1140+nrow(EPL1920)),17:24])
-
-#Efficiency; Inefficiency1 being for the home team and Inefficiency2, the away team
-EPL1617[,`:=` (EfficiencyH = FTHG / attackH, EfficiencyA = FTAG / attackA)]
-EPL1718[,`:=` (EfficiencyH = FTHG / attackH, EfficiencyA = FTAG / attackA)]
-EPL1819[,`:=` (EfficiencyH = FTHG / attackH, EfficiencyA = FTAG / attackA)]
-EPL1920[,`:=` (EfficiencyH = FTHG / attackH, EfficiencyA = FTAG / attackA)]
-
-allSeasons = list(EPL1617,EPL1718,EPL1819,EPL1920)
-
-#List to hold all tables that have the new columns
-meltedDataList = list()
-
+```{r results= "hide", echo=FALSE}
 #Separate Predictor variables from Aggregators.
 aggregateEplCols = c("HomeTeam","AwayTeam","FTHG","FTAG","HTHG","HTAG","HS","AS","HST","AST","HF","AF","HC","AC","HY","AY","HR","AR")
-
-seasonMeltMeasureList = list(c("HomeTeam", "AwayTeam"), c("FTHG", "FTAG"), c("HTHG", "HTAG"), c("HS", "AS"), c("HST", "AST"), c("HF", "AF"), c("HC", "AC"), 
-                             c("HY", "AY"), c("HR", "AR"), c("attackH", "attackA"), c("EfficiencyH","EfficiencyA"))
-
-seasonMeltNames = c("Team","FTG","HTG","Shots","ST","Fouls","Corners","Yellow","Red","attack","Efficiency")
+seasonMeltMeasureList = list(c("HomeTeam", "AwayTeam"), c("FTHG", "FTAG"), c("HTHG", "HTAG"), c("HS", "AS"), c("HST", "AST"), c("HF", "AF"), c("HC", "AC"),c("HY", "AY"), c("HR", "AR"))
+seasonMeltNames = c("Team","FTG","HTG","Shots","ST","Fouls","Corners","Yellow","Red")
 
 #For loop to aggregate each season data
 for(season in allSeasons){
@@ -141,162 +175,241 @@ for(season in allSeasons){
 allMeltedData = rbindlist(meltedDataList)
 
 #New columns for the rolling Averages
-rollingAvgColumns = paste0(c("FTG","HTG","Shots","ST","Fouls","Corners","Yellow","Red","attack","Efficiency"),"rAvg")
-
-##Custom function - Find the rolling mean and then shift by 1, so that the previous averages are used
-shift_froll = function(x, n){shift(frollmean(x, n= n))}
+rollingAvgColumns = paste0(c("FTG","HTG","Shots","ST","Fouls","Corners","Yellow","Red"),"rAvg")
 #bMelted[,variable:= as.factor(variable)]
 
 #Rolling Maean and Shift
-allMeltedData[, (rollingAvgColumns):= lapply(.SD, shift_froll,  n = 10), by = c("Team","variable"), .SDcols =  c("FTG","HTG","Shots","ST","Fouls","Corners","Yellow","Red","attack","Efficiency")]
+allMeltedData[, (rollingAvgColumns):= lapply(.SD, shift_froll,  n = 7), by = c("Team","variable"), .SDcols =  c("FTG","HTG","Shots","ST","Fouls","Corners","Yellow","Red")]
 
 #Fill NA values from rolling window and shifting with mean
-allMeltedData[,19:28 := na.aggregate(allMeltedData[,19:28] )]
+allMeltedData[,11:18 := na.aggregate(allMeltedData[,11:18] )]
 
 #Modelling Data
 #--------------
 #Fold data into Home and Away
-awayNames = names(allMeltedData[,19:28])#Get table names except variable
+awayNames = names(allMeltedData[,11:18])#Get table names except variable
 awayNames = paste0(awayNames,"Away")#Add away to specify stats
-allHome = allMeltedData[variable == 1, 19:28] #Home Stats without variable
-allAway = allMeltedData[variable == 2, 19:28] #Away stats without the variable
+allHome = allMeltedData[variable == 1, 11:18] #Home Stats without variable
+allAway = allMeltedData[variable == 2, 11:18] #Away stats without the variable
 names(allAway) = awayNames
 allBound = cbind(allHome, allAway)
 
 #Column bind data to get home and away wide table
-finalData = cbind(modelData, allBound,spiMatches[1:nrow(allBound),6:12])
+finalData = cbind(modelData, allBound)
+ModelData = finalData[61:nrow(finalData),3:ncol(finalData)] #First 200 rows are pretty much the same
+ModelData = na.omit(ModelData)
 ```
 
-# Generate Modelling Data
-After the data has been reshaped to calculate team forms by doing rolling avergaes, as this is a head to head, I decided to subtract the away team statistics from the home team statistics to show the relative difference between the teams. The problem with this approach is that it doesn't account for a tough run of fixtures which would affect the form metrics.
-[In the future, I'll look into other correlations between the variables, either using ratios or using the values as is ]
 
-```{r}
-#Tree Model
-ModelData = finalData[201:nrow(finalData),3:ncol(finalData)] #First 200 rows are pretty much the same
+### Variable Analysis
+After the data has been reshaped to calculate team forms by doing rolling avergages, variable analysis needs to be done.
 
-#Find difference in stats by team
-# ModelData[,`:=` (FTGrDiff = FTGrAvg - FTGrAvgAway, STrDiff = STrAvg - STrAvgAway, FoulsrDiff = FoulsrAvg - FoulsrAvgAway,
-#                  CornersrDiff = CornersrAvg - CornersrAvgAway, YellowrDiff = YellowrAvg - YellowrAvgAway, spiDiff = spi1 - spi2,
-#                  proj_scoreDiff = proj_score1 - proj_score2, attackDiff = attackrAvg - attackrAvgAway,
-#                  EfficiencyDiff = EfficiencyrAvg - EfficiencyrAvgAway)]
-
-#Remove unneeded cols
-# ModelData[,5:26:=NULL]
-# toRemove = c("proj_score1","proj_score2")
-# ModelData[,(toRemove):=NULL]
-
-#Variable Analysis
+Correlation plot below shows intercorrelations between predictors. This is the first step in variable analysis, and from the plot it makes sense that half time goals and full time goals have a strong correlation. BbAvH (Betting odds for the home team) also has moderate correlations with full time goals rolling average and total shots rolling average. This is intuitive because the stronger teams tend to take more shots, which increases the chances of 1 or 2 going in. 
+```{r fig.height=8, fig.width=8}
+#Correlation Plot
 corrplot(cor(ModelData[,2:ncol(ModelData)]), method ="color",order = "AOE")
-ModelData[,2:ncol(ModelData)]%>%gather()%>%ggplot(aes(value))+facet_wrap(~key, scales = "free")+geom_histogram()
-ggplot(ModelData[,2:ncol(ModelData)],aes(log(BbAvA)))+geom_histogram()
-
-#transformedModelData
-ModelData[,`:=` (BbAvA=log(BbAvA), BbAvD=log(BbAvD), BbAvH=log(BbAvH), FTR= as.factor(FTR))]
 ```
 
-# Principal Component Analysis
+It is also important to understand the distributions of the variables, although it is not necessary to normalize the distrubution before PCA. However, it is important to standardize the data because the variables are all of different units ans the values have differences of orders of magnitude.
+
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
+ModelData[,2:ncol(ModelData)]%>%gather()%>%ggplot(aes(value))+facet_wrap(~key, scales = "free")+geom_histogram()
+ModelData[,`:=` (FTR= as.factor(FTR))]
+ModelData[,`:=` (RedrAvg = NULL, RedrAvgAway = NULL)]
+ModelData2 = copy(ModelData)
+ModelData[,2:ncol(ModelData)] = as.data.table(scale(ModelData[,2:ncol(ModelData)])) #Stadardize Data
+```
+
+### Principal Component Analysis
+
+The scree plot displays how much variability of the data is captured in each dimension. The scree plot is somewhat subjective, but a visual observation suggests we can use the first 4 dimensions for prediction even though it only captures about 60% of the dataset varience
+
 ```{r}
 pcaEPL = prcomp(ModelData[,-1], scale=T)
-fviz_eig(pcaEPL)
-
-#Variables
+fviz_eig(pcaEPL, addlabels = T)
+```
+\newline
+The plot below shows the contribution of each variable to the first 2 dimensions. The betting odds and fifa ratings are the biggest contributors. 
+```{r}
 fviz_pca_var(pcaEPL,
              col.var = "contrib", # Color by contributions to the PC
              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
              repel = TRUE     # Avoid text overlapping
              )
+
+
+
+```
+
+### Variable Selection
+The PCA conribution plot is useful in choosing the variables to use as predictors. The standard contribution of a variable shoud be 3.125% due to the fact that there are 32 variables in the dataset. Across 4 dimensions, any variable that contributes more than 12.5 (4 x 3.125), can be regarded as important. The cutoff of 12.5 has been added to the plots to show which variables would be included in the prediction models.
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
 #PCA result
 eplVariablesPCA = get_pca_var(pcaEPL)
-#eplVariablesPCA$coord
-eplVariablesPCA$contrib
 
-variableContribbution = as.data.frame(sort(rowSums(eplVariablesPCA$contrib[,2:5])))
+variableContribbution = as.data.frame(sort(rowSums(eplVariablesPCA$contrib[,1:4])))
 names(variableContribbution) = c("PCA_Contribution")
-variableContribbution
 ggplot(variableContribbution, aes(x = row.names(variableContribbution), y = PCA_Contribution))+ geom_bar(stat = "identity", fill="steelblue")+ 
-  theme(axis.text.x=element_text(angle=90, hjust = 1))+xlab("PCA contribution of first three dimensions")
+  theme(axis.text.x=element_text(angle=90, hjust = 1))+ggtitle("PCA contribution to the first 4 dimensions")+
+  geom_hline(yintercept = 12.5, linetype="dotted", col="red")+ xlab("Predictors")+
+  annotate("text", x = "FoulsrAvg", y = 12.5, label = "Cutoff", vjust= -0.5)
 ```
-
-# CART Tree with k-Fold cross validation
+\newline
+ 
+## Prediction Models
+### CART Tree with k-Fold cross validation
+Classification trees have become very popular in recent years, they are very versatile and the results are easy to understand. 
 ```{r}
 #Classification Tree
-EPLTree <- rpart(FTR~. , data= ModelData, method = "class")
+EPLTree <- rpart(FTR~ AFifaATT+AFifaMID+AFifaDEF+AFifaOVR+ASpend+BbAvA+BbAvD+BbAvH+BbMxA+BbMxD+BbMxH+HFifaDEF+HFifaMID+HFifaOVR+HSpend+STrAvg+STrAvgAway, data= ModelData, method = "class")
 fancyRpartPlot(EPLTree)
-printcp(EPLTree)
-plotcp(EPLTree)
+```
 
+\newline
+\newline
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
 #Predicion - All data
-predictFTR = predict(EPLTree, type = "class")
-ModelData$predictFT = predictFTR
+ModelData$predictFT = predict(EPLTree, type = "class")
 cm <- conf_mat(ModelData, FTR, predictFT)
-autoplot(cm, type = "heatmap")+
-  scale_fill_gradient(low="#D6EAF8",high = "#2E86C1")
-#able(predictFTR, ModelData$FTR)
+plot_confusion_matrix(cm)
+```
 
+The confusion matrix shows an in-sample accuracy of 55%, this could perform terrribly out of sample though. The model could be highly biased, therefore we have to split the data to see how our model performs on new data.
+
+Before that we also want to perform cross-validation to figure out the complexity parameter that produces an out of sample tree with the highest accuracy.
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
 #Collect Train and Test Data
-library(caTools)
 set.seed(3000)
-spl <- sample.split(ModelData$FTR, SplitRatio = 0.7)
-Train <- subset(ModelData, spl == TRUE)
-Test <- subset(ModelData, spl == FALSE)
+trainIndex = createDataPartition(ModelData$FTR, p = 0.7, list = F, times = 1) 
+Train = ModelData[trainIndex,]
+Test = ModelData[-trainIndex,]
 
 #Cross Validation
-numFolds <- trainControl(method="cv", number=5)
+numFolds <- trainControl(method="cv", number=10, repeats = 10)
 cpGrid <- expand.grid(.cp=seq(0.001,0.1,0.001))#cp paramaeters to test as numbers from 0.0005 to 0.05, in increments of 0.01.
-train(FTR~., data = Train, method="rpart", trControl=numFolds, tuneGrid = cpGrid) #cp = 0.0155
+treeTuning = train(FTR~AFifaATT+AFifaMID+AFifaDEF+AFifaOVR+ASpend+BbAvA+BbAvD+BbAvH+BbMxA+BbMxD+BbMxH+HFifaDEF+HFifaMID+HFifaOVR+HSpend+STrAvg+STrAvgAway, data = Train, method="rpart", trControl=numFolds, tuneGrid = cpGrid) 
+plot(treeTuning)
+```
+From the plot a cp(complexity parameter) value of 0.008 gives the highest cross-validated accuracy OF ABOUT 0.53. Using this value, we can generate the tree and predict using test data culled from the dataset.
 
+
+
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
 #Classification Tree - With Validation Set
-EPLTree <- rpart(FTR~., data= Train, method = "class",  cp = 0.1)
+EPLTree = rpart(FTR~ AFifaATT+AFifaMID+AFifaDEF+AFifaOVR+ASpend+BbAvA+BbAvD+BbAvH+BbMxA+BbMxD+BbMxH+HFifaDEF+HFifaMID+HFifaOVR+HSpend+STrAvg+STrAvgAway, data= Train, method = "class",  cp = 0.008)
 fancyRpartPlot(EPLTree)
+```
+\newline
+\newline
 
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
 #Predicion - Test data
-predictFTR = predict(EPLTree, type = "class", newdata = Test)
-table(predictFTR, Test$FTR)
-```
-# Random Forest
-```{r}
-EPLForest = randomForest(FTR~., data= Train,ntree = 100, nodesize =40 )
-predictFTRForest = predict(EPLForest, newdata = Test)
-table(predictFTRForest, Test$FTR)
+Test$predictFT = predict(EPLTree, type = "class", newdata = Test)
+cm = conf_mat(Test, FTR, predictFT)
+plot_confusion_matrix(cm)
 
-# Tune Parameters
-```
-# Multinomial Logistic Regression
-```{r}
-glmModel = multinom(FTR~., data= Train)
-summary(glmModel)
-predictGlm =predict(glmModel,Test, "class")
-predictGlmProbs =predict(glmModel,Test, "probs")
-table(predictGlm, Test$FTR)
-predictionCompare = as.data.table(cbind(predictGlm, predictGlmProbs, Test$FTR))
 ```
 
-# Linear Discriminant Analysis and Quadratic Discriminat Analysis
-```{r}
+Surpsrisingly, the model performs just as well out of sample. A 55% prediction accuracy is very good. A betting model that wins 55% of the time should provide a high ROI if a user decides to put money on all matches as a form of long term investment
+
+
+
+### Random Forest.
+The logical extension of the tree model is the random forest. which is basically a tree of multiple trees. The downside to the random forest approach is that, it can be a little hard to interpret. On the flip-side, although it typically performs better than single trees
+
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
+EPLForest = randomForest(FTR~., data= Train, mtry = 2, ntree = 2000)
+Test$predictFT = predict(EPLForest, type = "class", newdata = Test)
+cm <- conf_mat(Test, FTR, predictFT)
+plot_confusion_matrix(cm)
+
+#Tune Parameters
+# control = trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+# tunegrid = expand.grid(.mtry =c(1:5))
+# rfGrid <- train(FTR~., data=Train, method="rf", metric="Accuracy", tuneGrid=tunegrid, trControl = control, ntree = 1000)
+# print(rfGrid)
+# plot(rfGrid)
+```
+The random forest is surprisingly not as accurate as the tree. It only predicts the right result 54% of the time. 
+
+### Naive Bayes Classifier.
+The Naive Bayes classifier assumes no intercorrelation between the predictors. I expect this to be the worse performing of all the models, because we already know the underlying assumption to be wrong.
+
+```{r }
+naiveModel = naiveBayes(FTR~AFifaATT+AFifaMID+AFifaDEF+AFifaOVR+ASpend+BbAvA+BbAvD+BbAvH+BbMxA+BbMxD+BbMxH+HFifaDEF+HFifaMID+HFifaOVR+HSpend+STrAvg+STrAvgAway, data = Train)
+```
+
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
+Test$predictFT = predict(naiveModel, type = "class", newdata = Test)
+cm <- conf_mat(Test, FTR, predictFT)
+plot_confusion_matrix(cm)
+```
+
+### Multinominal Logistic Regression.
+Multinominal logistic regression is a generalization of logistic regression for multiclass problems. This seems appropriate because there is no requirement for independent variables to be independent from each other. This is also an attractive model to use, because it does not assume normality. 
+```{r }
+glmModel = multinom(FTR~AFifaATT+AFifaMID+AFifaDEF+AFifaOVR+ASpend+BbAvA+BbAvD+BbAvH+BbMxA+BbMxD+BbMxH+HFifaDEF+HFifaMID+HFifaOVR+HSpend+STrAvg+STrAvgAway, data= Train)
+```
+
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
+#summary(glmModel)
+Test$predictFT = predict(glmModel,Test, "class")
+cm <- conf_mat(Test, FTR, predictFT)
+plot_confusion_matrix(cm)
+```
+
+### Linear Discriminant Analysis
+Linear Discriminant Analysis(LDA) is used to predict.The LDA model is more suitable for multiclass problems, although a few assumptions are made. The LDA assumes a normal data distribution, and a linear combination of predictors to predict outcome. From the histogram plot above, we can see that a few of the variables show a skewed distribution. The log of the data is taken to get them as close to normal as possible. 
+
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
 #Log transform BbAvH for lda to normalize
-ldaTrain = copy(Train)
-#ldaTrain[,BbAvH:=log(BbAvH)]
-#ldaTrain[,BbAvD:=log(BbAvD)]
-
-ldaTest = copy(Test)
-#ldaTest[,BbAvH:=log(BbAvH)]
-#ldaTest[,BbAvD:=log(BbAvD)]
-#ldaData = rbind(ldaTest,ldaTrain)
-
-ldaModel = lda(FTR~., data = ldaTrain, CV=TRUE)
-#ldaPred = predict(ldaModel, newdata = ldaTest)
-table(ldaModel$class, ldaData$FTR)
-qdaModel = qda(FTR~., data = ldaTrain)
-qdaPred = predict(qdaModel, newdata = ldaTest)
-table(qdaPred$class, ldaTest$FTR)
+ModelData = copy(ModelData2)
+ModelData[,`:=`(BbAvH=log(BbAvH), BbAvD=log(BbAvD), BbAvA=log(BbAvA), 
+               BbMxH=log(BbMxH), BbMxD=log(BbMxD), BbMxA=log(BbMxA))]
+ModelData[,2:ncol(ModelData)]%>%gather()%>%ggplot(aes(value))+facet_wrap(~key, scales = "free")+geom_histogram()
 ```
-#Naive Bayes Classifier
+
+
+Now that we have the desired distributions we wanted, we can perform LDA, and generate the truth table
+
+
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
+ModelData[,2:ncol(ModelData)] = as.data.table(scale(ModelData[,2:ncol(ModelData)])) 
+
+Train = ModelData[trainIndex,]
+Test = ModelData[-trainIndex,]
+```
+
+```{r }
+ldaModel = lda(FTR~AFifaATT+AFifaMID+AFifaDEF+AFifaOVR+ASpend+BbAvA+BbAvD+BbAvH+BbMxA+BbMxD+BbMxH+HFifaDEF+HFifaMID+HFifaOVR+HSpend+STrAvg+STrAvgAway, data = Train)
+```
+
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
+ldaFT = predict(ldaModel, Test)
+Test$predictFT = ldaFT$class
+cm <- conf_mat(Test, FTR, predictFT)
+plot_confusion_matrix(cm)
+```
+
+### Quadratic Discriminant Analysis
+The Quadratic Discriminant Analysis (QDA) model is similar to the Linear Discriminant Analysis, except we assume no common variance among our predictors.
+
 ```{r}
-naiveModel = naiveBayes(FTR~., data = ldaTrain)
-naivePred = predict(naiveModel, ldaTest, "class")
-table(naivePred, ldaTest$FTR)
+qdaModel = qda(FTR~AFifaATT+AFifaMID+AFifaDEF+AFifaOVR+ASpend+BbAvA+BbAvD+BbAvH+BbMxA+BbMxD+BbMxH+HFifaDEF+HFifaMID+HFifaOVR+HSpend+STrAvg+STrAvgAway, data = Train)
 ```
+
+```{r results= "hide", echo=FALSE, warning= FALSE, message=FALSE}
+qdaFT = predict(qdaModel, Test)
+Test$predictFT = qdaFT$class
+cm <- conf_mat(Test, FTR, predictFT)
+plot_confusion_matrix(cm)
+
+```
+
+
+## Conclusion
+
+After trying various models for prediction, I couldn't do better than a 55% out of sample prediction accuracy. The betting odds dominate the models as expected, due to the fact that the complex algorithms used by the multi-billion dollar gambling industry already accounts for team performance metrics. In the future, I plan to incorporate other variables into my models like injuries, xG, team standing before match, managerial changes, fantasy premier league performance, and even weather. The greatest obstacle is data availability, and collection. 
 
 
 

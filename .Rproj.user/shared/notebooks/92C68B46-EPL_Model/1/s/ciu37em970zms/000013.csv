@@ -1,9 +1,0 @@
-"0",""
-"0","#Predicion - All data"
-"0","predictFTR = predict(EPLTree, type = ""class"")"
-"0","ModelData$predictFT = predictFTR"
-"0","cm <- conf_mat(ModelData, FTR, predictFT)"
-"0","autoplot(cm, type = ""heatmap"")+"
-"0","  scale_fill_gradient(low=""#D6EAF8"",high = ""#2E86C1"")"
-"2","Scale for 'fill' is already present. Adding another scale for 'fill', which will replace the existing scale.
-"

@@ -1,3 +1,0 @@
-"0",""
-"0","#transformedModelData"
-"0","ModelData[,`:=` (BbAvA=log(BbAvA), BbAvD=log(BbAvD), BbAvH=log(BbAvH), FTR= as.factor(FTR))]"

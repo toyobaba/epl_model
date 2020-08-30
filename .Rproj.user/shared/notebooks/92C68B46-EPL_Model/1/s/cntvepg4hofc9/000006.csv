@@ -1,5 +1,0 @@
-"0","ldaModel = lda(FTR~., data = ldaTrain[,-31], CV=TRUE)
-"
-"2","Error in lda.default(x, grouping, ...) : 
-  variable 30 appears to be constant within groups
-"

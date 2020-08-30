@@ -1,1 +1,0 @@
-"0","ggplot(ModelData[,2:ncol(ModelData)],aes(log(BbAvA)))+geom_histogram()"
